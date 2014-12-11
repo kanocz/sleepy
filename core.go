@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 const (
@@ -206,7 +207,16 @@ func (api *DefaultAPI) Start(port int) error {
 	}
 	portString := fmt.Sprintf(":%d", port)
 	api.log("Listening on http://localhost:%d", port)
-	return http.ListenAndServe(portString, api.Mux())
+
+	server := &http.Server{
+		Addr:           portString,
+		Handler:        api.Mux(),
+		ReadTimeout:    20 * time.Second,
+		WriteTimeout:   20 * time.Second,
+		MaxHeaderBytes: 1 << 15,
+	}
+
+	return server.ListenAndServe()
 }
 
 func (api *DefaultAPI) log(msg string, args ...interface{}) {

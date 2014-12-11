@@ -3,6 +3,7 @@ package sleepy
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,6 +19,16 @@ const (
 	HEAD   = "HEAD"
 	PATCH  = "PATCH"
 )
+
+var (
+	httpReadTimeout  uint
+	httpWriteTimeout uint
+)
+
+func init() {
+	flag.UintVar(&httpReadTimeout, "httpReadTimeout", 20, "sleepy: Specifies the ReadTimeout.")
+	flag.UintVar(&httpWriteTimeout, "httpWriteTimeout", 20, "sleepy: Specifies the WriteTimeout.")
+}
 
 // GetSupported is the interface that provides the Get
 // method a resource must support to receive HTTP GETs.

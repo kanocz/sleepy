@@ -72,6 +72,8 @@ type API interface {
 	AddResourceWithWrapper(resource interface{}, wrapper func(handler http.HandlerFunc) http.HandlerFunc, paths ...string)
 	// Start causes the API to begin serving requests on the given port.
 	Start(port int) error
+	// SetMux sets the http.ServeMux to use by an API.
+	SetMux(mux *http.ServeMux) error
 }
 
 // An DefaultAPI manages a group of resources by routing requests
@@ -181,13 +183,12 @@ func (api *DefaultAPI) Mux() *http.ServeMux {
 }
 
 // SetMux sets the http.ServeMux to use by an API.
-func (api *API) SetMux(mux *http.ServeMux) error {
+func (api *DefaultAPI) SetMux(mux *http.ServeMux) error {
 	if api.muxInitialized {
 		return errors.New("You cannot set a muxer when already initialized.")
-	} else {
-		api.mux = mux
-		return nil
 	}
+	api.mux = mux
+	return nil
 }
 
 // AddResource adds a new resource to an API. The API will route

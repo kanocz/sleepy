@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 )
@@ -79,19 +80,30 @@ type API interface {
 // You can instantiate multiple APIs on separate ports. Each API
 // will manage its own set of resources.
 type DefaultAPI struct {
+	Logger *log.Logger
+
 	mux            *http.ServeMux
 	muxInitialized bool
 }
 
 // NewAPI allocates and returns a new API.
-func NewAPI() API {
-	return &DefaultAPI{}
+func NewAPI(options ...func(*DefaultAPI)) API {
+
+	api := DefaultAPI{}
+
+	// set any options
+	for _, o := range options {
+		o(&api)
+	}
+
+	return &api
 }
 
 func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
 	return func(rw http.ResponseWriter, request *http.Request) {
 
 		if request.ParseForm() != nil {
+			api.logRequest(request, http.StatusBadRequest, "request.ParseForm was nil")
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -126,17 +138,21 @@ func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
 		}
 
 		if handler == nil {
+			api.logRequest(request, http.StatusMethodNotAllowed, "Handler was nil")
 			rw.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
 		code, data, header := handler(request.Form, request.Header)
+		api.logRequest(request, code, "OK")
 
 		content, err := json.MarshalIndent(data, "", "  ")
 		if err != nil {
+			api.logRequest(request, http.StatusInternalServerError, "err in json.MarshalIndent: %s", err)
 			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+
 		for name, values := range header {
 			for _, value := range values {
 				rw.Header().Add(name, value)
@@ -156,6 +172,10 @@ func (api *DefaultAPI) Mux() *http.ServeMux {
 
 	api.mux = http.NewServeMux()
 	api.muxInitialized = true
+
+	// TODO log 404
+	//
+
 	return api.mux
 }
 
@@ -180,8 +200,34 @@ func (api *DefaultAPI) AddResourceWithWrapper(resource interface{}, wrapper func
 // Start causes the API to begin serving requests on the given port.
 func (api *DefaultAPI) Start(port int) error {
 	if !api.muxInitialized {
-		return errors.New("You must add at least one resource to this API.")
+		err := errors.New("You must add at least one resource to this API.")
+		api.log(err.Error())
+		return err
 	}
 	portString := fmt.Sprintf(":%d", port)
+	api.log("Listening on http://localhost:%d", port)
 	return http.ListenAndServe(portString, api.Mux())
+}
+
+func (api *DefaultAPI) log(msg string, args ...interface{}) {
+
+	if api.Logger == nil {
+		return
+	}
+
+	m := msg
+	if len(args) > 0 {
+		m = fmt.Sprintf(m, args...)
+	}
+	api.Logger.Println("sleepy:", m)
+}
+
+func (api *DefaultAPI) logRequest(r *http.Request, code int, msg string, args ...interface{}) {
+
+	m := msg
+	if len(args) > 0 {
+		m = fmt.Sprintf(msg, args...)
+	}
+
+	api.log("%s %s%s %d, %s", r.Method, r.URL.Path, r.URL.RawQuery, code, m)
 }

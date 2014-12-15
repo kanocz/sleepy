@@ -199,6 +199,7 @@ func (api *DefaultAPI) SetMux(mux *http.ServeMux) error {
 		return errors.New("You cannot set a muxer when already initialized.")
 	}
 	api.mux = mux
+	api.muxInitialized = true
 	return nil
 }
 

@@ -9,15 +9,23 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 const (
-	GET    = "GET"
-	POST   = "POST"
-	PUT    = "PUT"
+	// GET HTTP method
+	GET = "GET"
+	// POST HTTP method
+	POST = "POST"
+	// PUT HTTP method
+	PUT = "PUT"
+	// DELETE HTTP method
 	DELETE = "DELETE"
-	HEAD   = "HEAD"
-	PATCH  = "PATCH"
+	// HEAD HTTP method
+	HEAD = "HEAD"
+	// PATCH HTTP method
+	PATCH = "PATCH"
 )
 
 var (
@@ -70,9 +78,9 @@ type PatchSupported interface {
 // to the correct method on a matching resource and marshalling
 // the returned data to JSON for the HTTP response.
 type API interface {
-	// Mux returns the http.ServeMux used by an API. If a ServeMux has
+	// Mux returns the Mux used by an API. If a Mux has
 	// does not yet exist, a new one will be created and returned.
-	Mux() *http.ServeMux
+	Mux() Mux
 	// AddResource adds a new resource to an API. The API will route
 	// requests that match one of the given paths to the matching HTTP
 	// method on the resource.
@@ -83,8 +91,16 @@ type API interface {
 	AddResourceWithWrapper(resource interface{}, wrapper func(handler http.HandlerFunc) http.HandlerFunc, paths ...string)
 	// Start causes the API to begin serving requests on the given port.
 	Start(port int) error
-	// SetMux sets the http.ServeMux to use by an API.
-	SetMux(mux *http.ServeMux) error
+	// SetMux sets the Mux to use by an API.
+	SetMux(mux Mux) error
+	// SetLogger sets log.Logger for loging all requests
+	SetLogger(logger *log.Logger)
+}
+
+// Mux Interface for arbitrary muxer support (like http.ServeMux or gorilla/mux).
+type Mux interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) *mux.Route
+	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 // An DefaultAPI manages a group of resources by routing requests
@@ -96,7 +112,7 @@ type API interface {
 type DefaultAPI struct {
 	Logger *log.Logger
 
-	mux            *http.ServeMux
+	mux            Mux
 	muxInitialized bool
 }
 
@@ -111,6 +127,11 @@ func NewAPI(options ...func(*DefaultAPI)) API {
 	}
 
 	return &api
+}
+
+// SetLogger sets log.Logger for loging all requests
+func (api *DefaultAPI) SetLogger(logger *log.Logger) {
+	api.Logger = logger
 }
 
 func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
@@ -177,14 +198,14 @@ func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
 	}
 }
 
-// Mux returns the http.ServeMux used by an API. If a ServeMux has
+// Mux returns the Mux used by an API. If a Mux has
 // does not yet exist, a new one will be created and returned.
-func (api *DefaultAPI) Mux() *http.ServeMux {
+func (api *DefaultAPI) Mux() Mux {
 	if api.muxInitialized {
 		return api.mux
 	}
 
-	api.mux = http.NewServeMux()
+	api.mux = mux.NewRouter()
 	api.muxInitialized = true
 
 	// TODO log 404
@@ -193,8 +214,8 @@ func (api *DefaultAPI) Mux() *http.ServeMux {
 	return api.mux
 }
 
-// SetMux sets the http.ServeMux to use by an API.
-func (api *DefaultAPI) SetMux(mux *http.ServeMux) error {
+// SetMux sets the Mux to use by an API.
+func (api *DefaultAPI) SetMux(mux Mux) error {
 	if api.muxInitialized {
 		return errors.New("You cannot set a muxer when already initialized.")
 	}

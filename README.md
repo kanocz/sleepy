@@ -10,14 +10,15 @@ package main
 import (
     "net/url"
     "net/http"
-    "github.com/dougblack/sleepy"
+    "github.com/kanocz/sleepy"
+    "github.com/julienschmidt/httprouter"
 )
 
 type Item struct { }
 
-func (item Item) Get(values url.Values, headers http.Header) (int, interface{}, http.Header) {
+func (item Item) Get(values url.Values, headers http.Header, params httprouter.Params) (int, interface{}, http.Header) {
     items := []string{"item1", "item2"}
-    data := map[string][]string{"items": items}
+    data := map[string][]string{"items": items, "name": params.ByName("name")}
     return 200, data, http.Header{"Content-type": {"application/json"}}
 }
 
@@ -25,7 +26,7 @@ func main() {
     item := new(Item)
 
     api := sleepy.NewAPI()
-    api.AddResource(item, "/items")
+    api.AddResource(item, "/items/:name")
     api.Start(3000)
 }
 ```
@@ -33,8 +34,8 @@ func main() {
 Now if we curl that endpoint:
 
 ```bash
-$ curl localhost:3000/items
-{"items": ["item1", "item2"]}
+$ curl localhost:3000/items/hello
+{"items": ["item1", "item2"], "name": "hello"}
 ```
 
 `sleepy` has not been officially released yet, as it is still in active
@@ -42,7 +43,7 @@ development.
 
 ## Docs
 
-Documentation lives [here](http://godoc.org/github.com/dougblack/sleepy).
+Original documentation lives [here](http://godoc.org/github.com/dougblack/sleepy).
 
 ## License
 

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/julienschmidt/httprouter"
 )
 
 const (
@@ -40,37 +40,37 @@ func init() {
 // GetSupported is the interface that provides the Get
 // method a resource must support to receive HTTP GETs.
 type GetSupported interface {
-	Get(*http.Request, http.Header) (int, interface{}, http.Header)
+	Get(*http.Request, http.Header, httprouter.Params) (int, interface{}, http.Header)
 }
 
 // PostSupported is the interface that provides the Post
 // method a resource must support to receive HTTP POSTs.
 type PostSupported interface {
-	Post(*http.Request, http.Header) (int, interface{}, http.Header)
+	Post(*http.Request, http.Header, httprouter.Params) (int, interface{}, http.Header)
 }
 
 // PutSupported is the interface that provides the Put
 // method a resource must support to receive HTTP PUTs.
 type PutSupported interface {
-	Put(*http.Request, http.Header) (int, interface{}, http.Header)
+	Put(*http.Request, http.Header, httprouter.Params) (int, interface{}, http.Header)
 }
 
 // DeleteSupported is the interface that provides the Delete
 // method a resource must support to receive HTTP DELETEs.
 type DeleteSupported interface {
-	Delete(*http.Request, http.Header) (int, interface{}, http.Header)
+	Delete(*http.Request, http.Header, httprouter.Params) (int, interface{}, http.Header)
 }
 
 // HeadSupported is the interface that provides the Head
 // method a resource must support to receive HTTP HEADs.
 type HeadSupported interface {
-	Head(*http.Request, http.Header) (int, interface{}, http.Header)
+	Head(*http.Request, http.Header, httprouter.Params) (int, interface{}, http.Header)
 }
 
 // PatchSupported is the interface that provides the Patch
 // method a resource must support to receive HTTP PATCHs.
 type PatchSupported interface {
-	Patch(*http.Request, http.Header) (int, interface{}, http.Header)
+	Patch(*http.Request, http.Header, httprouter.Params) (int, interface{}, http.Header)
 }
 
 // API is the interface to manage a group of resources by routing requests
@@ -79,7 +79,7 @@ type PatchSupported interface {
 type API interface {
 	// Mux returns the Mux used by an API. If a Mux has
 	// does not yet exist, a new one will be created and returned.
-	Mux() Mux
+	Mux() *httprouter.Router
 	// AddResource adds a new resource to an API. The API will route
 	// requests that match one of the given paths to the matching HTTP
 	// method on the resource.
@@ -87,19 +87,13 @@ type API interface {
 	// AddResourceWithWrapper behaves exactly like AddResource but wraps
 	// the generated handler function with a give wrapper function to allow
 	// to hook in Gzip support and similar.
-	AddResourceWithWrapper(resource interface{}, wrapper func(handler http.HandlerFunc) http.HandlerFunc, paths ...string)
+	AddResourceWithWrapper(resource interface{}, wrapper func(handler httprouter.Handle) httprouter.Handle, paths ...string)
 	// Start causes the API to begin serving requests on the given port.
 	Start(port int) error
 	// SetMux sets the Mux to use by an API.
-	SetMux(mux Mux) error
+	SetMux(mux *httprouter.Router) error
 	// SetLogger sets log.Logger for loging all requests
 	SetLogger(logger *log.Logger)
-}
-
-// Mux Interface for arbitrary muxer support (like http.ServeMux or gorilla/mux).
-type Mux interface {
-	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) *mux.Route
-	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 // An DefaultAPI manages a group of resources by routing requests
@@ -111,7 +105,7 @@ type Mux interface {
 type DefaultAPI struct {
 	Logger *log.Logger
 
-	mux            Mux
+	mux            *httprouter.Router
 	muxInitialized bool
 }
 
@@ -133,8 +127,8 @@ func (api *DefaultAPI) SetLogger(logger *log.Logger) {
 	api.Logger = logger
 }
 
-func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
-	return func(rw http.ResponseWriter, request *http.Request) {
+func (api *DefaultAPI) requestHandler(resource interface{}) httprouter.Handle {
+	return func(rw http.ResponseWriter, request *http.Request, params httprouter.Params) {
 
 		if request.ParseForm() != nil {
 			api.logRequest(request, http.StatusBadRequest, "request.ParseForm was nil")
@@ -142,7 +136,7 @@ func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
 			return
 		}
 
-		var handler func(*http.Request, http.Header) (int, interface{}, http.Header)
+		var handler func(*http.Request, http.Header, httprouter.Params) (int, interface{}, http.Header)
 
 		switch request.Method {
 		case GET:
@@ -177,7 +171,7 @@ func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
 			return
 		}
 
-		code, data, header := handler(request, request.Header)
+		code, data, header := handler(request, request.Header, params)
 		api.logRequest(request, code, "OK")
 
 		content, err := json.MarshalIndent(data, "", "  ")
@@ -199,12 +193,12 @@ func (api *DefaultAPI) requestHandler(resource interface{}) http.HandlerFunc {
 
 // Mux returns the Mux used by an API. If a Mux has
 // does not yet exist, a new one will be created and returned.
-func (api *DefaultAPI) Mux() Mux {
+func (api *DefaultAPI) Mux() *httprouter.Router {
 	if api.muxInitialized {
 		return api.mux
 	}
 
-	api.mux = mux.NewRouter()
+	api.mux = httprouter.New()
 	api.muxInitialized = true
 
 	// TODO log 404
@@ -214,7 +208,7 @@ func (api *DefaultAPI) Mux() Mux {
 }
 
 // SetMux sets the Mux to use by an API.
-func (api *DefaultAPI) SetMux(mux Mux) error {
+func (api *DefaultAPI) SetMux(mux *httprouter.Router) error {
 	if api.muxInitialized {
 		return errors.New("You cannot set a muxer when already initialized.")
 	}
@@ -228,16 +222,51 @@ func (api *DefaultAPI) SetMux(mux Mux) error {
 // method on the resource.
 func (api *DefaultAPI) AddResource(resource interface{}, paths ...string) {
 	for _, path := range paths {
-		api.Mux().HandleFunc(path, api.requestHandler(resource))
+		if resource, ok := resource.(GetSupported); ok {
+			api.Mux().GET(path, api.requestHandler(resource))
+		}
+		if resource, ok := resource.(PostSupported); ok {
+			api.Mux().POST(path, api.requestHandler(resource))
+		}
+		if resource, ok := resource.(PutSupported); ok {
+			api.Mux().PUT(path, api.requestHandler(resource))
+		}
+		if resource, ok := resource.(DeleteSupported); ok {
+			api.Mux().DELETE(path, api.requestHandler(resource))
+		}
+		if resource, ok := resource.(HeadSupported); ok {
+			api.Mux().HEAD(path, api.requestHandler(resource))
+		}
+		if resource, ok := resource.(PatchSupported); ok {
+			api.Mux().PATCH(path, api.requestHandler(resource))
+		}
 	}
 }
 
 // AddResourceWithWrapper behaves exactly like AddResource but wraps
 // the generated handler function with a give wrapper function to allow
 // to hook in Gzip support and similar.
-func (api *DefaultAPI) AddResourceWithWrapper(resource interface{}, wrapper func(handler http.HandlerFunc) http.HandlerFunc, paths ...string) {
+func (api *DefaultAPI) AddResourceWithWrapper(resource interface{}, wrapper func(handler httprouter.Handle) httprouter.Handle, paths ...string) {
 	for _, path := range paths {
-		api.Mux().HandleFunc(path, wrapper(api.requestHandler(resource)))
+		if resource, ok := resource.(GetSupported); ok {
+			api.Mux().GET(path, wrapper(api.requestHandler(resource)))
+		}
+		if resource, ok := resource.(PostSupported); ok {
+			api.Mux().POST(path, wrapper(api.requestHandler(resource)))
+		}
+		if resource, ok := resource.(PutSupported); ok {
+			api.Mux().PUT(path, wrapper(api.requestHandler(resource)))
+		}
+		if resource, ok := resource.(DeleteSupported); ok {
+			api.Mux().DELETE(path, wrapper(api.requestHandler(resource)))
+		}
+		if resource, ok := resource.(HeadSupported); ok {
+			api.Mux().HEAD(path, wrapper(api.requestHandler(resource)))
+		}
+		if resource, ok := resource.(PatchSupported); ok {
+			api.Mux().PATCH(path, wrapper(api.requestHandler(resource)))
+		}
+
 	}
 }
 
@@ -282,5 +311,5 @@ func (api *DefaultAPI) logRequest(r *http.Request, code int, msg string, args ..
 		m = fmt.Sprintf(msg, args...)
 	}
 
-	api.log("%s %s%s %d, %s", r.Method, r.URL.Path, r.URL.RawQuery, code, m)
+	api.log("[%v] %s %s%s %d, %s", r.RemoteAddr, r.Method, r.URL.Path, r.URL.RawQuery, code, m)
 }

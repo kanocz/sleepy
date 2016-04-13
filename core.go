@@ -174,7 +174,17 @@ func (api *DefaultAPI) requestHandler(resource interface{}) httprouter.Handle {
 		code, data, header := handler(request, request.Header, params)
 		api.logRequest(request, code, "OK")
 
-		content, err := json.MarshalIndent(data, "", "  ")
+		var content []byte
+		var err error
+
+		if -200 != code {
+			content, err = json.MarshalIndent(data, "", "  ")
+			// content, err = json.Marshal(data)
+		} else {
+			code = 200
+			content = data.([]byte)
+		}
+
 		if err != nil {
 			api.logRequest(request, http.StatusInternalServerError, "err in json.MarshalIndent: %s", err)
 			rw.WriteHeader(http.StatusInternalServerError)

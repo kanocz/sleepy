@@ -321,5 +321,10 @@ func (api *DefaultAPI) logRequest(r *http.Request, code int, msg string, args ..
 		m = fmt.Sprintf(msg, args...)
 	}
 
-	api.log("[%v] %s %s%s %d, %s", r.RemoteAddr, r.Method, r.URL.Path, r.URL.RawQuery, code, m)
+	remote := r.Header.Get("X-Real-IP")
+	if "" == remote {
+		remote = r.RemoteAddr
+	}
+
+	api.log("[%v] %s %s%s %d, %s", remote, r.Method, r.URL.Path, r.URL.RawQuery, code, m)
 }

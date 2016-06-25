@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
+	"github.com/kanocz/graceful"
 	"github.com/kavu/go_reuseport"
 )
 
@@ -295,22 +298,46 @@ func (api *DefaultAPI) Start(host string, port int) error {
 		return err
 	}
 
-	portString := fmt.Sprintf(":%d", port)
+	listenString := fmt.Sprintf("%s:%d", host, port)
 	if "" != host {
-		api.log("Listening on http://%s:%d", host, port)
+		api.log("Listening on http://%s", listenString)
 	} else {
-		api.log("Listening on http://[any]:%d", port)
+		api.log("Listening on http://[any]%s", listenString)
 	}
 
 	server := &http.Server{
-		Addr:           portString,
+		Addr:           listenString,
 		Handler:        api.Mux(),
 		ReadTimeout:    20 * time.Second,
 		WriteTimeout:   20 * time.Second,
 		MaxHeaderBytes: 1 << 15,
 	}
 
-	return server.Serve(listener)
+	gracefulServer := graceful.Server{
+		Timeout: 20 * time.Second,
+		Server:  server,
+		Logger:  graceful.DefaultLogger(),
+		BeforeShutdown: func() bool {
+			path := os.Args[0]
+			var args []string
+			if len(os.Args) > 1 {
+				args = os.Args[1:]
+			}
+
+			cmd := exec.Command(path, args...)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			err = cmd.Start()
+			if nil != err {
+				return false
+			}
+
+			return true
+		},
+	}
+
+	return gracefulServer.Serve(listener)
 }
 
 func (api *DefaultAPI) log(msg string, args ...interface{}) {

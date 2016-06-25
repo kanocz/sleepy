@@ -338,5 +338,5 @@ func (api *DefaultAPI) logRequest(r *http.Request, code int, msg string, args ..
 		remote = r.RemoteAddr
 	}
 
-	api.log("[%v] %s %s%s %d, %s", remote, r.Method, r.URL.Path, r.URL.RawQuery, code, m)
+	api.log("[%v] %s %s/%s %d, %s", remote, r.Method, r.URL.Path, r.URL.RawQuery, code, m)
 }

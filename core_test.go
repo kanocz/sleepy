@@ -1,10 +1,12 @@
 package sleepy
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 )
 
 type Item struct{}
@@ -17,11 +19,18 @@ func (item Item) Get(values url.Values, headers http.Header) (int, interface{}, 
 
 func TestBasicGet(t *testing.T) {
 
-	item := new(Item)
-
 	var api = NewAPI()
-	api.AddResource(item, "/items", "/bar", "/baz")
-	go api.Start(3000)
+	api.AddResource(Item{}, "/items", "/bar", "/baz")
+	go func() {
+		err := api.Start("localhost", 3000)
+		if nil != err {
+			fmt.Println("Error starting sleepy.api:", err)
+		}
+	}()
+
+	// avoid errors on slow CI servers
+	time.Sleep(time.Second / 10)
+
 	resp, err := http.Get("http://localhost:3000/items")
 	if err != nil {
 		t.Error(err)

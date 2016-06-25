@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/julienschmidt/httprouter"
+	"github.com/kavu/go_reuseport"
 )
 
 const (
@@ -89,7 +90,7 @@ type API interface {
 	// to hook in Gzip support and similar.
 	AddResourceWithWrapper(resource interface{}, wrapper func(handler httprouter.Handle) httprouter.Handle, paths ...string)
 	// Start causes the API to begin serving requests on the given port.
-	Start(port int) error
+	Start(host string, port int) error
 	// SetMux sets the Mux to use by an API.
 	SetMux(mux *httprouter.Router) error
 	// SetLogger sets log.Logger for loging all requests
@@ -281,14 +282,25 @@ func (api *DefaultAPI) AddResourceWithWrapper(resource interface{}, wrapper func
 }
 
 // Start causes the API to begin serving requests on the given port.
-func (api *DefaultAPI) Start(port int) error {
+func (api *DefaultAPI) Start(host string, port int) error {
 	if !api.muxInitialized {
 		err := errors.New("You must add at least one resource to this API.")
 		api.log(err.Error())
 		return err
 	}
+
+	listener, err := reuseport.NewReusablePortListener("tcp4", fmt.Sprintf("%s:%d", host, port))
+	if nil != err {
+		api.log("Error reuseport listen: %v", err)
+		return err
+	}
+
 	portString := fmt.Sprintf(":%d", port)
-	api.log("Listening on http://localhost:%d", port)
+	if "" != host {
+		api.log("Listening on http://%s:%d", host, port)
+	} else {
+		api.log("Listening on http://[any]:%d", port)
+	}
 
 	server := &http.Server{
 		Addr:           portString,
@@ -298,7 +310,7 @@ func (api *DefaultAPI) Start(port int) error {
 		MaxHeaderBytes: 1 << 15,
 	}
 
-	return server.ListenAndServe()
+	return server.Serve(listener)
 }
 
 func (api *DefaultAPI) log(msg string, args ...interface{}) {

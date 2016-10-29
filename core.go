@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"os/exec"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
@@ -317,24 +315,6 @@ func (api *DefaultAPI) Start(host string, port int) error {
 		Timeout: 20 * time.Second,
 		Server:  server,
 		Logger:  graceful.DefaultLogger(),
-		BeforeShutdown: func() bool {
-			path := os.Args[0]
-			var args []string
-			if len(os.Args) > 1 {
-				args = os.Args[1:]
-			}
-
-			cmd := exec.Command(path, args...)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-
-			err = cmd.Start()
-			if nil != err {
-				return false
-			}
-
-			return true
-		},
 	}
 
 	return gracefulServer.Serve(listener)

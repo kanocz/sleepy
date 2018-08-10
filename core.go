@@ -179,6 +179,11 @@ func (api *DefaultAPI) requestHandler(resource interface{}) httprouter.Handle {
 		var content []byte
 		var err error
 
+		if http.StatusFound == code || http.StatusMovedPermanently == code || http.StatusTemporaryRedirect == code {
+			http.Redirect(rw, request, data.(string), code)
+			return
+		}
+
 		if -200 != code {
 			content, err = json.MarshalIndent(data, "", "  ")
 			// content, err = json.Marshal(data)

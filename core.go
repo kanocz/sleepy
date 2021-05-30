@@ -1,17 +1,20 @@
 package sleepy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
-	"github.com/kanocz/graceful"
-	"github.com/kavu/go_reuseport"
+	reuseport "github.com/kavu/go_reuseport"
 )
 
 const (
@@ -227,7 +230,7 @@ func (api *DefaultAPI) Mux() *httprouter.Router {
 // SetMux sets the Mux to use by an API.
 func (api *DefaultAPI) SetMux(mux *httprouter.Router) error {
 	if api.muxInitialized {
-		return errors.New("You cannot set a muxer when already initialized.")
+		return errors.New("you cannot set a muxer when already initialized")
 	}
 	api.mux = mux
 	api.muxInitialized = true
@@ -290,7 +293,7 @@ func (api *DefaultAPI) AddResourceWithWrapper(resource interface{}, wrapper func
 // Start causes the API to begin serving requests on the given port.
 func (api *DefaultAPI) Start(host string, port int) error {
 	if !api.muxInitialized {
-		err := errors.New("You must add at least one resource to this API.")
+		err := errors.New("you must add at least one resource to this API")
 		api.log(err.Error())
 		return err
 	}
@@ -302,7 +305,7 @@ func (api *DefaultAPI) Start(host string, port int) error {
 	}
 
 	listenString := fmt.Sprintf("%s:%d", host, port)
-	if "" != host {
+	if host != "" {
 		api.log("Listening on http://%s", listenString)
 	} else {
 		api.log("Listening on http://[any]%s", listenString)
@@ -316,13 +319,31 @@ func (api *DefaultAPI) Start(host string, port int) error {
 		MaxHeaderBytes: 1 << 15,
 	}
 
-	gracefulServer := graceful.Server{
-		Timeout: 20 * time.Second,
-		Server:  server,
-		Logger:  graceful.DefaultLogger(),
-	}
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT)
+	signal.Notify(c, syscall.SIGTERM)
+	go func() {
+		<-c
+		// sig is a ^C, handle it
+		fmt.Println("shutting down..")
 
-	return gracefulServer.Serve(listener)
+		// create context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		// start http shutdown
+		server.Shutdown(ctx)
+
+		// verify, in worst case call cancel via defer
+		select {
+		case <-time.After(21 * time.Second):
+			fmt.Println("this never happen... I hope")
+			os.Exit(0)
+		case <-ctx.Done():
+		}
+	}()
+
+	return server.Serve(listener)
 }
 
 func (api *DefaultAPI) log(msg string, args ...interface{}) {
@@ -346,7 +367,7 @@ func (api *DefaultAPI) logRequest(r *http.Request, code int, msg string, args ..
 	}
 
 	remote := r.Header.Get("X-Real-IP")
-	if "" == remote {
+	if remote == "" {
 		remote = r.RemoteAddr
 	}
 
